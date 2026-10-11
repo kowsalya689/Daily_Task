@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tell us how we did</title>
+<style>
+  :root {
+    --paper: #F2F4F7; --panel: #FFFFFF; --ink: #1A2233; --muted: #5B6578; --line: #D5DAE3;
+    --accent: #2F4B8A; --accent-ink: #FFFFFF;
+    --positive: #1D7A5F; --neutral: #8A6516; --negative: #B3261E;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
+  main { max-width: 980px; margin: 0 auto; padding: 48px 20px 64px; }
+  h1 { font: 600 clamp(2rem, 5vw, 3rem)/1.1 var(--serif); margin: 0 0 12px; letter-spacing: -0.01em; }
+  .lede { max-width: 56ch; color: var(--muted); margin: 0 0 36px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .hint { font-weight: 400; color: var(--muted); }
+  textarea, input { width: 100%; font: inherit; color: inherit; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 6px; background: #fff; }
+  textarea { min-height: 150px; resize: vertical; }
+  textarea:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .field { margin-bottom: 18px; }
+  .count { text-align: right; font-size: .85rem; color: var(--muted); margin-top: 4px; }
+  button { font: 600 1rem var(--sans); background: var(--accent); color: var(--accent-ink); border: 0;
+    border-radius: 6px; padding: 12px 22px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: progress; }
+  .error { color: var(--negative); margin: 14px 0 0; min-height: 1.5em; }
+  .empty { color: var(--muted); margin: 0; }
+  .verdict { font: 600 clamp(2.4rem, 7vw, 3.6rem)/1 var(--serif); margin: 0 0 10px; transition: color .3s; }
+  .verdict.positive { color: var(--positive); } .verdict.neutral { color: var(--neutral); } .verdict.negative { color: var(--negative); }
+  .reply { margin: 0 0 24px; }
+  .row { display: grid; grid-template-columns: 76px 1fr 44px; gap: 10px; align-items: center; margin-bottom: 10px; font-size: .95rem; }
+  .track { height: 10px; background: var(--paper); border-radius: 5px; overflow: hidden; }
+  .bar { height: 100%; width: 0; border-radius: 5px; transition: width .6s ease; }
+  .bar.positive { background: var(--positive); } .bar.neutral { background: var(--neutral); } .bar.negative { background: var(--negative); }
+  .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  [hidden] { display: none; }
+  @media (prefers-reduced-motion: reduce) { .bar, .verdict { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tell us how we did</h1>
+  <p class="lede">Write a sentence or two about your experience. We read the tone of every message, and complaints go straight to the owner.</p>
+
+  <div class="grid">
+    <form id="form" class="panel" novalidate>
+      <div class="field">
+        <label for="text">Your feedback</label>
+        <textarea id="text" maxlength="2000" required placeholder="What went well, or what went wrong?"></textarea>
+        <div class="count"><span id="count">0</span> / 2000</div>
+      </div>
+      <div class="field">
+        <label for="contact">Name or phone <span class="hint">(optional, so we can follow up)</span></label>
+        <input id="contact" maxlength="100" autocomplete="name">
+      </div>
+      <button id="send" type="submit">Send feedback</button>
+      <p id="error" class="error" role="alert"></p>
+    </form>
+
+    <section class="panel" aria-live="polite" aria-labelledby="result-title">
+      <h2 id="result-title" class="hint" style="font-size:1rem;margin:0 0 14px">Result</h2>
+      <p id="empty" class="empty">Your result appears here after you send feedback.</p>
+      <div id="result" hidden>
+        <p id="verdict" class="verdict"></p>
+        <p id="reply" class="reply"></p>
+        <div id="bars"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const LABELS = ["negative", "neutral", "positive"];
+  const REPLIES = {
+    positive: "Thank you. We're glad it went well.",
+    neutral: "Thank you for the feedback. We'll keep working on it.",
+    negative: "We're sorry this fell short.",
+  };
+
+  $("text").addEventListener("input", () => { $("count").textContent = $("text").value.length; });
+
+  function showError(msg) { $("error").textContent = msg; }
+
+  function showResult(data) {
+    const s = data.sentiment;
+    $("empty").hidden = true;
+    $("result").hidden = false;
+    $("verdict").className = "verdict " + s;
+    $("verdict").textContent = s[0].toUpperCase() + s.slice(1);
+    $("reply").textContent = REPLIES[s] + (s === "negative" && data.owner_alerted ? " The owner has been notified and will look into it." : "");
+
+    $("bars").replaceChildren(...LABELS.map((label) => {
+      const pct = Math.round((data.scores[label] || 0) * 100);
+      const row = document.createElement("div");
+      row.className = "row";
+      const name = document.createElement("span");
+      name.textContent = label[0].toUpperCase() + label.slice(1);
+      const track = document.createElement("div");
+      track.className = "track";
+      const bar = document.createElement("div");
+      bar.className = "bar " + label;
+      track.append(bar);
+      const num = document.createElement("span");
+      num.className = "pct";
+      num.textContent = pct + "%";
+      row.append(name, track, num);
+      requestAnimationFrame(() => { bar.style.width = pct + "%"; });
+      return row;
+    }));
+  }
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    showError("");
+    const text = $("text").value.trim();
+    if (text.length < 3) { showError("Write at least a few words so we can analyse your feedback."); return; }
+
+    $("send").disabled = true;
+    $("send").textContent = "Sending…";
+    try {
+      const res = await fetch("/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, contact: $("contact").value.trim() || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(typeof data.detail === "string" ? data.detail : "Something went wrong. Please try again.");
+        return;
+      }
+      showResult(data);
+    } catch {
+      showError("Can't reach the server. Check your connection and try again.");
+    } finally {
+      $("send").disabled = false;
+      $("send").textContent = "Send feedback";
+    }
+  });
+</script>
+</body>
+</html>

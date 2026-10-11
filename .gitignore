@@ -1,0 +1,8 @@
+
+.venv/
+.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+customer_feedback_analysis/data/raw/
